@@ -46,7 +46,12 @@ function Login() {
           alert("Logging you in")
           navigate("/Profile")
         }
-  
+        localStorage.setItem(
+            "token",
+            data.data.token
+        );
+        console.log(data)
+          
         }
     catch(err){
       console.log(err)
@@ -173,6 +178,13 @@ function Login() {
              Sign Up</button>
           </form>
         )}
+        <div>
+          <button className="btn btn-primary"
+          onClick={() => {
+                window.location.href =
+                  "http://localhost:3000/auth/google";
+  }}>Login With Google</button>
+        </div>
 
       </div>
     </center>
