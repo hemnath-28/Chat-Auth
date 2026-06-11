@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import axios from "axios";
 import {useNavigate} from "react-router-dom"
-
+import {UserContext} from "./User"
 function Profile() {
   const [prof, setprof] = useState(null);
 
   const token = localStorage.getItem("token");
   const navigate = useNavigate();
   
-
+  const {setUser} =useContext(UserContext)
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -23,6 +23,8 @@ function Profile() {
         );
 
         setprof(response.data.user);
+        setUser(response.data.user);
+        
       } catch (error) {
         console.error("Error fetching profile:", error);
       }
@@ -44,6 +46,7 @@ function Profile() {
   function handlelogout(){
     localStorage.removeItem("token")
     console.log("log-out Succeess")
+    setUser(null)
     navigate("/")
   }
 
