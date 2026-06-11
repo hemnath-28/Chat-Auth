@@ -1,6 +1,7 @@
-import React from 'react'
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 function OAuthSuccess() {
+    const navigate = useNavigate();
 
     useEffect(() => {
 
@@ -16,12 +17,14 @@ function OAuthSuccess() {
                 "token",
                 token
             );
-
-            
+            navigate("/Profile", { replace: true });
+        }
+        else {
+            navigate("/", { replace: true });
         }
 
-    }, []);
-    window.location.href = "http://localhost:5173/Profile";
+    }, [navigate]);
+
     return <h1>Logging in...</h1>;
 }
 
