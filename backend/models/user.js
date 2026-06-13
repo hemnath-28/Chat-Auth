@@ -12,12 +12,7 @@ const userSchema = new mongoose.Schema(
         usergmail:{
             type:String,
             required:true
-        },
-        rooms:
-           {
-            type:[String],
-            default:[]
-           }
+        }
         ,
         profilepic:{
             type:String
@@ -33,7 +28,8 @@ const userSchema = new mongoose.Schema(
         googleId:{
             type:String
         }
-}
+},
+{ timestamps: true }
 )
 const User = mongoose.model("User", userSchema)
 module.exports=User
