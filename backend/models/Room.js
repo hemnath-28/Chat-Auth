@@ -20,10 +20,18 @@ const RoomSchema=new mongoose.Schema(
         required:true
     },
 
-    members:[{
-        type:mongoose.Schema.Types.ObjectId,
-        ref:"User"
-    }]
+    members: [{
+        userId: { 
+            type: mongoose.Schema.Types.ObjectId, 
+            ref: 'User',
+            required: true
+        },
+        joinedAt:{
+            type:Date,
+            default:Date.now
+        }
+    }],
+    
 
 },
 { timestamps: true }
