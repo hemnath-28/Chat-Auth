@@ -1,6 +1,6 @@
 const Room=require("../models/Room")
 const Message=require('../models/Message')
-
+const User=require("../models/user")
 function generateRoomid(){
     let i=0
     console.log("in gen room id")
@@ -12,6 +12,7 @@ function generateRoomid(){
     }
     return roomId
 }
+
 
 async function getunique(){
     console.log("in get uniqe")
@@ -66,19 +67,12 @@ async function joinRoom(req,res){
     try{
     let findroom=await Room.findOne({joinId:joincode})
     if (!findroom){
-        if (joincode === "5A64WZ") {
-            findroom = await Room.create({
-                roomName: "Test Room 5A64WZ",
-                joinId: "5A64WZ",
-                admin: userid,
-                members: [{ userId: userid }]
-            })
-        } else {
-            return res.status(404).json({
-                message:"Room with that Id not Found"
-            })
+        return res.status(404).json({
+            message:"Room with joinId not Found"
         }
+        )
     }
+
     if (findroom.members.some(member => member.userId.toString() === userid.toString())) {
             return res.status(400).json({ message: "You are already in this room!" });
     }
@@ -155,4 +149,80 @@ async function getRoomMessage(req,res){
 
 }
 
-module.exports={createRoom,joinRoom,getRoomMessage,getroomMembers}
+async function getactivemembers(req, res) {
+    console.log("--- GET ACTIVE MEMBERS TRIGGERED ---");
+    
+    // 1. Check if req.params matches your route pattern exactly
+    const { joinid } = req.params; 
+    console.log("Received dynamic joinid parameter:", joinid);
+    onlineUsers=req.app.get("onlineUsers")
+    try {
+        // 2. Query MongoDB
+        const room = await Room.findOne({ joinId: joinid }).populate({
+            path: "members.userId",
+            select: "userName profilepic"
+        });
+        
+        if (!room) {
+            console.log("❌ DB Error: No room matched joinId:", joinid);
+            return res.status(404).json({ message: "Room not found" });
+        }
+        
+        console.log(`Found Room "${room.roomName}". Total member count in DB:`, room.members.length);
+        console.log("Current Live Memory Map content:", Array.from(onlineUsers.keys()));
+
+        // 3. Filter list matching live map
+        const onlinemembers = room.members.filter((member) => {
+            // Safe guard against deleted users
+            if (!member.userId || !member.userId._id) return false;
+            
+            const memberid = member.userId._id.toString();
+            
+
+            return onlineUsers.has(memberid); 
+        });
+        
+        console.log("Successfully filtered online members:", onlinemembers);
+        return res.status(200).json(onlinemembers);
+        
+    } catch (err) {
+        // This will print the actual technical error (e.g., ReferenceError) to your console
+        console.error("❌ CRASH inside getactivemembers:", err); 
+        return res.status(500).json({
+            message: "Internal server error. Try again.",
+            error: err.message
+        });
+    }
+}
+async function getRoom(req,res){
+    const {id}=req.params;
+    console.log(id)
+    try{
+    
+    const userRooms = await Room.find(
+            {
+                "members.userId": id // 🟢 Clean, fast, and completely correct shorthand
+            },
+            {
+                _id: 1,
+                roomName: 1, // ✨ Added so your frontend can map over and show "General Chat", etc.
+                joinId: 1,   // ✨ Added so you can build your URL links (e.g., /chat/5A64WZ)
+                admin: 1
+            }
+            );
+        console.log(userRooms)
+    return res.status(200).json({
+        userRooms
+    })
+
+    }
+    catch(err){
+        console.log("error in Get room :",err)
+        return res.status(500).json({
+            message:"Bad server Error Try Again"
+        })
+    }
+    
+
+}
+module.exports={createRoom,joinRoom,getRoomMessage,getroomMembers,getactivemembers,getRoom}
