@@ -1,0 +1,10 @@
+.hover-sidebar-item {
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+.hover-sidebar-item:hover {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    color: #ffffff !important;
+}
+.cursor-pointer {
+    cursor: pointer;
+}
