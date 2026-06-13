@@ -232,6 +232,12 @@ async function leaveroom(req,res){
     console.log("joinid delete:",joinid)
     console.log("req user:",req.user)
     try{
+        const checkadmin=await Room.findOne({admin:userid,joinId:joinid})
+        if (checkadmin){
+            return res.status(403).json({
+                message:"You are admin unable to delete it"
+            })
+        }
         const leaveroom=await Room.findOneAndUpdate({
         joinId:joinid
     },{$pull:{members:{userId:userid} }},
