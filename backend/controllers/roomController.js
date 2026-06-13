@@ -225,4 +225,36 @@ async function getRoom(req,res){
     
 
 }
-module.exports={createRoom,joinRoom,getRoomMessage,getroomMembers,getactivemembers,getRoom}
+
+async function leaveroom(req,res){
+    const {joinid}=req.params
+    const userid=req.user.id
+    console.log("joinid delete:",joinid)
+    console.log("req user:",req.user)
+    try{
+        const leaveroom=await Room.findOneAndUpdate({
+        joinId:joinid
+    },{$pull:{members:{userId:userid} }},
+        {new:true}
+    ).populate("members.userId")
+    if (!leaveroom){
+        return res.status(404).json({
+            message:"User already left "
+        })
+    }
+    console.log("Leave Room:",leaveroom)
+    return res.status(200).json({
+        message:"User has left the room",
+        details:leaveroom
+    })
+
+    }
+    catch(err){
+        console.log("in the Leave room:",err)
+
+    }
+    }
+    
+    
+
+module.exports={createRoom,joinRoom,getRoomMessage,getroomMembers,getactivemembers,getRoom,leaveroom}
