@@ -59,6 +59,7 @@ io.on("connection",(socket)=>{
         socket.broadcast.to(msg.roomid).emit("UserStopped",msg.username)
     })
     socket.on("send_message",async (msg)=>{
+        console.log("in the send_message")
         const { joinid, sender, content } = msg;
         console.log("message:",msg)
         const roomDoc = await Room.findOne({ joinId: joinid });
@@ -69,8 +70,11 @@ io.on("connection",(socket)=>{
         const newMessage = await Message.create({
             room: roomDoc._id,     // Room ObjectID
             sender: sender, // User ObjectID
-            content: content
+            content: content,
+            fileUrl: msg.fileUrl || null,    // 🟢 Save the file URL
+            fileType: msg.fileType || null   // 🟢 Save the file type
         });
+        console.log("message fontend:",newMessage)
         console.log("message Saved")
         const populatemessage=await newMessage.populate("sender", "userName profilepic")
         io.emit("receive_message",populatemessage)
@@ -85,9 +89,14 @@ io.on("connection",(socket)=>{
             message:"User has been left"
         })
     })
+
+    // Admin removes a member — notify that specific user to navigate home
+    socket.on("remove_member", ({ roomid, removedUserId }) => {
+        console.log(`Admin removed user ${removedUserId} from room ${roomid}`)
+        // Emit to all sockets in this room — the frontend checks if it's the removed user
+        io.to(roomid).emit("you_were_removed", { removedUserId })
+    })
 })
-
-
 
 
 

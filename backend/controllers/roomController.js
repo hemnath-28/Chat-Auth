@@ -14,8 +14,6 @@ function generateRoomid(){
     }
     return roomId
 }
-
-
 async function getunique(){
     console.log("in get uniqe")
     let i=0
@@ -98,10 +96,13 @@ async function getroomMembers(req,res){
     const {joinid}=req.params
     try{
         const members=await Room.findOne({ joinId: joinid })
-    .populate({
+    .populate([{
         path: 'members.userId',       // ✨ Path down into the array item
         select: 'userName profilepic'  // Keep selecting the exact public fields you need
-    });
+    },{
+        path:'admin',
+        select:'userName'
+    }]);
         console.log("Memebrs",members)
         return res.status(200).json({
             message:"In room members",
@@ -263,6 +264,43 @@ async function leaveroom(req,res){
     }
     }
     
+async function memberremove(req,res){
+    const id=req.user.id
+    const {joinid}=req.params
+    const {delid}=req.params
+
+    console.log("memberremove hit!");
+    console.log("Logged-in user id (from token):", id);
+    console.log("Room joinid:", joinid);
+    console.log("Member to delete delid:", delid);
+
+    const roomDetails = await Room.findOne({ joinId: joinid });
+    console.log("Found room details:", roomDetails ? { roomName: roomDetails.roomName, admin: roomDetails.admin } : "null");
+
+    const checkadmin=await Room.findOne(
+        {joinId:joinid,
+        admin:id
+    })
+    console.log("Is admin verification successful (checkadmin):", !!checkadmin);
+
+    if (checkadmin){
+        const memberdeleted=await Room.findOneAndUpdate({joinId:joinid},
+            {$pull:{
+                members:{
+                    userId:delid
+                }
+            }},
+            { new: true }   
+        )
+        return res.status(200).json({
+            message:"true",
+            deldetails:memberdeleted
+        })
+    }
+
+    return res.status(403).json("User is not this Room Admin")
+
+}
     
 
-module.exports={createRoom,joinRoom,getRoomMessage,getroomMembers,getactivemembers,getRoom,leaveroom}
+module.exports={createRoom,joinRoom,getRoomMessage,getroomMembers,getactivemembers,getRoom,leaveroom,memberremove}
