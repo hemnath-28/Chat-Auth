@@ -1,6 +1,8 @@
 const Room=require("../models/Room")
 const Message=require('../models/Message')
 const User=require("../models/user")
+const cloudinary = require('cloudinary').v2;
+const {imageupload}=require("../services/cloudinary")
 function generateRoomid(){
     let i=0
     console.log("in gen room id")

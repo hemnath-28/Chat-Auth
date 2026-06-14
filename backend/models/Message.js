@@ -13,7 +13,15 @@ const messageSchema=new mongoose.Schema({
     },
     content:{
         type:String,
-        required:true
+        required:false
+    },
+    fileUrl: {
+        type: String,   // 🟢 Stores the Cloudinary URL
+        default: null
+    },
+    fileType: {
+        type: String,   // 🟢 e.g., 'image', 'video', 'pdf', 'raw'
+        default: null
     }
 },
 {
