@@ -3,10 +3,11 @@ import axios from "axios"
 import {io} from 'socket.io-client'
 import {useParams, useNavigate} from 'react-router-dom'
 import {UserContext} from "./User"
-import { useEffect,useState } from 'react'
+import { useEffect,useState,useRef } from 'react'
 const socket=io("http://localhost:3000", { autoConnect: false })
   function Chat() {
-
+    const [typingUsers, setTypingUsers] = useState([]);
+    const [selectedFile, setSelectedFile] = useState(null);
     const {roomid}=useParams()
     const navigate=useNavigate();
     const token=localStorage.getItem('token')
@@ -15,7 +16,8 @@ const socket=io("http://localhost:3000", { autoConnect: false })
     const [typedText, setTypedText] = useState("");
     const [activeMembers, setActiveMembers] = useState([]);
     const [totalMembers, setTotalMembers] = useState([]);
-
+    const typingTimer = useRef(null)
+    console.log(user)
     useEffect(() => {
         if (!loading && !user) {
             navigate("/");
@@ -28,7 +30,10 @@ const socket=io("http://localhost:3000", { autoConnect: false })
       }
      
       socket.connect()
-      socket.emit("user_connected",user._id) 
+      socket.emit("user_connected",{
+        id:user._id,
+        name:user.userName
+      }) 
       socket.emit("join_room", roomid);
 
       const fetchhistory=async ()=>{
@@ -65,11 +70,13 @@ const socket=io("http://localhost:3000", { autoConnect: false })
       }
 
       fetchhistory()
-
+      socket.on("alert",(msg)=>{
+        console.log("in the alert section",msg)
+        alert(msg.message)
+      })
       socket.on('receive_message',(incomingMessage)=>{
         setMessages((prev)=>[...prev,incomingMessage])
       });
-
       socket.on("user-joined",(msg)=>{
         console.log("User joined:", msg)
         fetchhistory()
@@ -79,27 +86,100 @@ const socket=io("http://localhost:3000", { autoConnect: false })
         console.log("User left:", msg)
         fetchhistory()
       })
+        socket.on("UserTyping", (username) => {
+            console.log("in user typing", username)
+            setTypingUsers((prev) => {
+                if (prev.includes(username)) return prev;
+                return [...prev, username];
+            });
+        });
+
+        socket.on("UserStopped", (username) => {
+            console.log("user stopped typing", username)
+            setTypingUsers((prev) => prev.filter((name) => name !== username));
+        });
 
       return ()=>{
+        console.log("Cleaning up socket listeners...");
         socket.disconnect();
-        socket.off("receive_message")
-        socket.off("user-joined")
-        socket.off("user-left")
+        socket.off("alert"); // 👈 Added this missing cleanup line
+        socket.off("receive_message");
+        socket.off("user-joined");
+        socket.off("user-left");
+        socket.off("UserTyping");
+        socket.off("UserStopped");
       }
     },[roomid,user,token])
 
-    const handleSendMessage = (e) => {
-        e.preventDefault();
-        if (!typedText.trim()) return;
+    // Backend proxy download — avoids CORS issues with Cloudinary raw files
+    const handleDownload = (url, filename) => {
+        const proxyUrl = `http://localhost:3000/room/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename || 'download')}`;
+        const link = document.createElement('a');
+        link.href = proxyUrl;
+        link.download = filename || 'download';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
-        const messagePayload = {
-            joinid: roomid,
-            sender: user?._id,
-            content: typedText
-        };
+    const handleSendMessage = async (e) => {
+        e.preventDefault();
+        if (!typedText.trim() && !selectedFile) return;
+
+        let uploadfileurl = null;
+        let uploadfiletype = null;
+
+        // Clear typing indicator instantly when sending a message
+        clearTimeout(typingTimer.current);
+        socket.emit("stoptyping", {
+            roomid: roomid,
+            username: user.userName
+        });
+
+        if (selectedFile){
+            const formData=new FormData()
+            formData.append('image',selectedFile)
+            try{
+                const Response=await axios.post("http://localhost:3000/room/upload",formData,{
+                    headers: {
+                        "Content-Type": "multipart/form-data"
+                    }
+                })
+                const uploadResult = Response.data.message || Response.data;
+                uploadfileurl = uploadResult.url;
+                uploadfiletype = selectedFile.type.startsWith('image/') ? 'image' : 'file';
+            }
+            catch(err){
+                console.log(err)
+            }
+        }
+
+        let messagePayload;
+
+        if (!selectedFile){
+            messagePayload = {
+                joinid: roomid,
+                sender: user?._id,
+                content: typedText,
+                fileUrl: null,
+                fileType: null  
+            };
+            socket.emit("send_message", messagePayload);
+            setTypedText("");
+            return;
+        } else {
+            messagePayload = {
+                joinid: roomid,
+                sender: user?._id,
+                content: typedText || selectedFile.name,
+                fileUrl: uploadfileurl,
+                fileType: uploadfiletype  
+            };
+        }
 
         socket.emit("send_message", messagePayload);
         setTypedText("");
+        setSelectedFile(null); // Clear selected file after sending
     };
 
     if (loading || !user) {
@@ -108,6 +188,22 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                 <div className="spinner-border"></div>
             </div>
         );
+    }
+    async function handleleaveroom(){
+        try{
+            const leave=await axios.delete(`http://localhost:3000/room/${roomid}/leave`, {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            })
+            console.log(leave)
+            navigate("/Home")
+        }
+        catch(err){
+            console.error("Error leaving room:", err)
+            alert(err.response?.data?.message || "Failed to leave the room")
+            
+        }
     }
 
     const sidebarStyles = `
@@ -224,6 +320,16 @@ const socket=io("http://localhost:3000", { autoConnect: false })
             <div className="members-sidebar rounded border">
                 {/* Collapsed state display */}
                 <div className="members-collapsed-title">
+                    {/* Home Link (Collapsed) */}
+                    <button 
+                        className="btn btn-sm btn-outline-secondary mb-3 rounded-circle" 
+                        style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => navigate("/Home")}
+                        title="Go to Home"
+                    >
+                        🏠
+                    </button>
+                    
                     <span style={{ fontSize: '1.4rem' }}>👥</span>
                     <span className="badge bg-success rounded-circle px-2 py-1" style={{ fontSize: '0.75rem', marginTop: '5px' }}>
                         {activeMembers.length}
@@ -233,6 +339,16 @@ const socket=io("http://localhost:3000", { autoConnect: false })
 
                 {/* Expanded hover state display */}
                 <div className="members-expanded-content">
+                    {/* Home Link (Expanded) */}
+                    <button 
+                        className="btn btn-outline-dark btn-sm w-100 mb-3 d-flex align-items-center justify-content-center gap-2"
+                        onClick={() => 
+                            navigate("/Home")
+                        }
+                    >
+                        <span>🏠</span> Go to Home
+                    </button>
+
                     {/* Active members */}
                     <div className="mb-4">
                         <h5 className="border-bottom pb-2 text-success" style={{ fontSize: '1rem', fontWeight: 'bold' }}>
@@ -305,7 +421,17 @@ const socket=io("http://localhost:3000", { autoConnect: false })
 
             {/* Right Side: Main Chat Feed and Input */}
             <div className="d-flex flex-column flex-grow-1" style={{ height: '100%' }}>
-                <h3>Chat Room</h3>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                    <h3 className="m-0">Chat Room</h3>
+                    <button 
+                        className="btn btn-danger btn-sm px-3"
+                        onClick={() =>
+                            handleleaveroom()
+                        }
+                    >
+                        Leave Room
+                    </button>
+                </div>
                 
                 {/* Messages Feed Container */}
                 <div className="flex-grow-1 overflow-auto border rounded p-3 chat-box-glass mb-3" style={{ minHeight: '400px' }}>
@@ -318,22 +444,112 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                                 <small className="d-block fw-bold border-bottom pb-1 mb-1" style={{ fontSize: '0.75rem' }}>
                                     {msg.sender.userName}
                                 </small>
-                                <p className="mb-0">{msg.content}</p>
+                                {msg.fileUrl ? (
+                                    // Ensure documents (PDF, Doc, Txt) are not treated as images even if they have an image fileType
+                                    !/\.(pdf|doc|docx|txt)$/i.test(msg.fileUrl) &&
+                                    !/\.(pdf|doc|docx|txt)$/i.test(msg.content) &&
+                                    (msg.fileType === 'image' || 
+                                     (/\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i.test(msg.fileUrl)) ||
+                                     (msg.content && /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(msg.content))) ? (
+                                        <div className="mt-1">
+                                            <img 
+                                                src={msg.fileUrl} 
+                                                alt="Uploaded file" 
+                                                className="img-fluid rounded mb-1" 
+                                                style={{ maxHeight: '200px', objectFit: 'contain', cursor: 'pointer' }}
+                                                onClick={() => window.open(msg.fileUrl, '_blank')}
+                                            />
+                                            {msg.content && <p className="mb-0 small">{msg.content}</p>}
+                                        </div>
+                                    ) : (
+                                        <div className="mt-1">
+                                            <button 
+                                                onClick={() => handleDownload(msg.fileUrl, msg.content)}
+                                                className={`btn btn-sm ${user && msg.sender._id === user._id ? 'btn-light text-dark' : 'btn-outline-primary'} d-inline-flex align-items-center gap-1`}
+                                            >
+                                                📄 Download {msg.content}
+                                            </button>
+                                        </div>
+                                    )
+                                ) : (
+                                    <p className="mb-0">{msg.content}</p>
+                                )}
                             </div>
                         </div>
                     ))}
                 </div>
 
+                {/* Typing Indicator */}
+                {typingUsers.length > 0 && (
+                    <div className="text-muted small mb-2 px-1" style={{ transition: 'opacity 0.2s' }}>
+                        ✍️ <em>
+                            {typingUsers.length === 1 
+                                ? `${typingUsers[0]} is typing...` 
+                                : typingUsers.length === 2 
+                                ? `${typingUsers[0]} and ${typingUsers[1]} are typing...` 
+                                : "Several people are typing..."
+                            }
+                        </em>
+                    </div>
+                )}
+
+                {/* Staged File Preview */}
+                {selectedFile && (
+                    <div className="d-flex align-items-center gap-2 mb-2 p-2 bg-light border rounded" style={{ maxWidth: 'fit-content' }}>
+                        <span>📄 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                        <button 
+                            type="button" 
+                            className="btn btn-sm btn-outline-danger py-0 px-2"
+                            onClick={() => setSelectedFile(null)}
+                            style={{ lineHeight: '1', fontSize: '0.8rem', padding: '1px 5px' }}
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
+
                 {/* Message Input Bar */}
-                <form onSubmit={handleSendMessage} className="d-flex gap-2">
+                <form onSubmit={handleSendMessage} className="d-flex gap-2 align-items-center">
+                    <input 
+                        type="file" 
+                        id="fileInput" 
+                        style={{ display: 'none' }} 
+                        onChange={(e) => {setSelectedFile(e.target.files[0])
+                            console.log(selectedFile)
+                        }}
+                        accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.txt,.pdf,.doc,.docx,.py,.java,.c,.cpp,.js,.ts,.json,.xml,.csv,.html,.css"
+                    />
                     <input 
                         type="text" 
-                        className="form-control"
+                        className="form-control flex-grow-1"
                         placeholder="Write a message..."
                         value={typedText}
-                        onChange={(e) => setTypedText(e.target.value)}
+                        onChange={(e) => {
+                            setTypedText(e.target.value)
+                            
+                            socket.emit("typing",({
+                                roomid:roomid,
+                                username:user.userName
+                            }))
+                            clearTimeout(typingTimer.current)
+                            typingTimer.current = setTimeout(() => {
+                                socket.emit("stoptyping",{
+                                    roomid:roomid,
+                                    username:user.userName
+                                });
+                            }, 3000);
+                        }}
                     />
-                    <button type="submit" className="btn btn-primary">Send</button>
+                    <button 
+                        type="button" 
+                        className="btn btn-outline-secondary d-flex align-items-center justify-content-center"
+                        style={{ width: '40px', height: '40px', borderRadius: '8px' }}
+                        onClick={() => document.getElementById('fileInput').click()}
+                        title="Upload file or image"
+                    >
+                        📎
+                    </button>
+                    <button type="submit" className="btn btn-primary" style={{ height: '40px', borderRadius: '8px' }}>Send</button>
                 </form>
             </div>
         </div>
