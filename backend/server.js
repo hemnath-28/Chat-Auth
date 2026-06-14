@@ -33,23 +33,30 @@ io.on("connection",(socket)=>{
     let globalroomid=null
     console.log("A user is Connected via web Socket",socket.id)
     // on User Connected attach id to it and emit to everyone user-connected
-    socket.on("user_connected",(userid)=>{
-        socket.userid=userid
+    socket.on("user_connected",(msg)=>{
+        socket.userid=msg.id
         onlineUsers.set(socket.userid,socket.id)
-        if (globalroomid){
-            socket.broadcast.to(globalroomid).emit("alert", {
-        message: "New user has been Joined"
-    });
-
-        }
-        io.emit("user-joined",{
-            userId:userid,status:"online"
-        })
     })
+    
     socket.on("join_room",(roomid)=>{
         globalroomid=roomid
         socket.join(roomid)
+        io.to(roomid).emit("user-joined",{
+            userId:socket.userid,status:"online"
+        })
+        if (globalroomid){
+            socket.broadcast.to(globalroomid).emit("alert", {
+        message: "New user has been Joined "
+    });
+
+        }
         console.log(`Socket ${socket.id} joined room room: ${roomid}`);
+    })
+    socket.on("typing",(msg)=>{
+        socket.broadcast.to(msg.roomid).emit("UserTyping",msg.username)
+    })
+    socket.on("stoptyping",(msg)=>{
+        socket.broadcast.to(msg.roomid).emit("UserStopped",msg.username)
     })
     socket.on("send_message",async (msg)=>{
         const { joinid, sender, content } = msg;
@@ -71,7 +78,7 @@ io.on("connection",(socket)=>{
     // On user disconnect remove from map and emit user-left
     socket.on("disconnect",()=>{
         onlineUsers.delete(socket.userid)
-        io.emit("user-left",{
+        io.to(globalroomid).emit("user-left",{
             userId:socket.userid,status:"offline"
         })
         socket.broadcast.to(globalroomid).emit("alert",{
