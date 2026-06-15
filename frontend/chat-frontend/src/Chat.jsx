@@ -1,5 +1,5 @@
 import React, { useContext } from 'react'
-import axios from "axios"
+import api from "./api"
 import {io} from 'socket.io-client'
 import {useParams, useNavigate} from 'react-router-dom'
 import {UserContext} from "./User"
@@ -16,6 +16,9 @@ const socket=io("http://localhost:3000", { autoConnect: false })
     const [typedText, setTypedText] = useState("");
     const [activeMembers, setActiveMembers] = useState([]);
     const [totalMembers, setTotalMembers] = useState([]);
+    const [isAdmin, setIsAdmin] = useState(false);      // true if current user is room admin
+    const [adminId, setAdminId] = useState(null);        // stores the admin's user ID
+    const [copied, setCopied] = useState(false);        // true when join code is copied to clipboard
     const typingTimer = useRef(null)
     console.log(user)
     useEffect(() => {
@@ -39,28 +42,21 @@ const socket=io("http://localhost:3000", { autoConnect: false })
       const fetchhistory=async ()=>{
         try{
           console.log(`http://localhost:3000/room/${roomid}/message`)
-          const response=await axios.get(`http://localhost:3000/room/${roomid}/message`,{
-            headers:{
-              Authorization: `Bearer ${token}`
-            }
-          })
+          const response=await api.get(`/room/${roomid}/message`)
           setMessages(response.data)
 
           // Fetch all room members
-          const membersResponse=await axios.get(`http://localhost:3000/room/${roomid}/members`,{
-            headers:{
-              Authorization: `Bearer ${token}`
-            }
-          })
+          const membersResponse=await api.get(`/room/${roomid}/members`)
           console.log("total Members:", membersResponse)
           setTotalMembers(membersResponse.data.people.members || [])
 
+          // Admin is already returned in the members response — no extra API call needed
+          const roomAdminId = membersResponse.data.people.admin?._id
+          setAdminId(roomAdminId)
+          setIsAdmin(roomAdminId === user?._id)
+
           // Fetch online active members
-          const activeusers=await axios.get(`http://localhost:3000/room/${roomid}/activemember`,{
-            headers:{
-              Authorization: `Bearer ${token}`
-            }
-          })
+          const activeusers=await api.get(`/room/${roomid}/activemember`)
           console.log("Active Users:", activeusers)
           setActiveMembers(activeusers.data);
         }
@@ -99,15 +95,28 @@ const socket=io("http://localhost:3000", { autoConnect: false })
             setTypingUsers((prev) => prev.filter((name) => name !== username));
         });
 
-      return ()=>{
+        // If this user was removed by admin, navigate them to Home
+        socket.on("you_were_removed", ({ removedUserId }) => {
+            if (user && removedUserId === user._id) {
+                alert("You have been removed from this room by the admin.")
+                navigate("/Home")
+            } else {
+                // Refresh member list for others in the room
+                setTotalMembers(prev => prev.filter(m => m.userId?._id !== removedUserId))
+                setActiveMembers(prev => prev.filter(m => m.userId?._id !== removedUserId))
+            }
+        })
+
+      return () => {
         console.log("Cleaning up socket listeners...");
         socket.disconnect();
-        socket.off("alert"); // 👈 Added this missing cleanup line
+        socket.off("alert");
         socket.off("receive_message");
         socket.off("user-joined");
         socket.off("user-left");
         socket.off("UserTyping");
         socket.off("UserStopped");
+        socket.off("you_were_removed");
       }
     },[roomid,user,token])
 
@@ -120,6 +129,27 @@ const socket=io("http://localhost:3000", { autoConnect: false })
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    // Admin: remove a member from the room
+    const handleRemoveMember = async (memberId) => {
+        try {
+            await api.delete(`/room/${roomid}/remove/${memberId}`)
+            // Notify the removed user via socket to navigate home
+            socket.emit("remove_member", { roomid, removedUserId: memberId })
+            // Remove from local state immediately
+            setTotalMembers(prev => prev.filter(m => m.userId?._id !== memberId))
+            setActiveMembers(prev => prev.filter(m => m.userId?._id !== memberId))
+        } catch (err) {
+            console.error("Failed to remove member:", err)
+            alert("Failed to remove member. Make sure you are the admin.")
+        }
+    };
+
+    const handleCopyJoinCode = () => {
+        navigator.clipboard.writeText(roomid);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
     const handleSendMessage = async (e) => {
@@ -140,7 +170,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
             const formData=new FormData()
             formData.append('image',selectedFile)
             try{
-                const Response=await axios.post("http://localhost:3000/room/upload",formData,{
+                const Response=await api.post("/room/upload",formData,{
                     headers: {
                         "Content-Type": "multipart/form-data"
                     }
@@ -191,11 +221,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
     }
     async function handleleaveroom(){
         try{
-            const leave=await axios.delete(`http://localhost:3000/room/${roomid}/leave`, {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            })
+            const leave=await api.delete(`/room/${roomid}/leave`)
             console.log(leave)
             navigate("/Home")
         }
@@ -240,6 +266,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
         flex-direction: column;
         align-items: center;
         width: 100%;
+        height: 100%;
         padding: 20px 0;
         cursor: default;
     }
@@ -267,8 +294,26 @@ const socket=io("http://localhost:3000", { autoConnect: false })
         width: 100%;
         height: 100%;
         padding: 15px;
-        overflow-y: auto;
         white-space: normal;
+    }
+    .members-scroll-area {
+        flex-grow: 1;
+        overflow-y: auto;
+        margin-bottom: 10px;
+        padding-right: 4px;
+    }
+    .members-scroll-area::-webkit-scrollbar {
+        width: 4px;
+    }
+    .members-scroll-area::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .members-scroll-area::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 4px;
+    }
+    .members-scroll-area::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.3);
     }
     .member-item {
         display: flex;
@@ -335,6 +380,18 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                         {activeMembers.length}
                     </span>
                     <div className="vertical-text">Members</div>
+
+                    {/* Copy Join Code Button (Collapsed) */}
+                    <div className="mt-auto">
+                        <button 
+                            className={`btn btn-sm ${copied ? 'btn-success text-white' : 'btn-outline-secondary'} rounded-circle d-flex align-items-center justify-content-center`} 
+                            style={{ width: '36px', height: '36px', transition: 'all 0.2s' }}
+                            onClick={handleCopyJoinCode}
+                            title="Copy Room Join Code"
+                        >
+                            {copied ? '✓' : '🔗'}
+                        </button>
+                    </div>
                 </div>
 
                 {/* Expanded hover state display */}
@@ -349,71 +406,115 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                         <span>🏠</span> Go to Home
                     </button>
 
-                    {/* Active members */}
-                    <div className="mb-4">
-                        <h5 className="border-bottom pb-2 text-success" style={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                            Active Members ({activeMembers.length})
-                        </h5>
-                        <div className="d-flex flex-column gap-2">
-                            {activeMembers.map((member) => {
-                                const u = member.userId;
-                                if (!u) return null;
-                                return (
-                                    <div key={u._id} className="member-item">
-                                        <div className="avatar-container">
-                                            <img 
-                                                src={u.profilepic || `https://api.dicebear.com/7.x/adventurer/svg?seed=${u.userName}`} 
-                                                alt={u.userName} 
-                                                className="avatar-img"
-                                            />
-                                            <span className="status-badge status-online"></span>
+                    {/* Scrollable members list */}
+                    <div className="members-scroll-area">
+                        {/* Active members */}
+                        <div className="mb-4">
+                            <h5 className="border-bottom pb-2 text-success" style={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                                Active Members ({activeMembers.length})
+                            </h5>
+                            <div className="d-flex flex-column gap-2">
+                                {activeMembers.map((member) => {
+                                    const u = member.userId;
+                                    if (!u) return null;
+                                    return (
+                                        <div key={u._id} className="member-item">
+                                            <div className="avatar-container">
+                                                <img 
+                                                    src={u.profilepic || `https://api.dicebear.com/7.x/adventurer/svg?seed=${u.userName}`} 
+                                                    alt={u.userName} 
+                                                    className="avatar-img"
+                                                />
+                                                <span className="status-badge status-online"></span>
+                                            </div>
+                                            <span className="fw-semibold text-truncate" style={{ fontSize: '0.9rem' }}>
+                                                {u.userName}
+                                            </span>
                                         </div>
-                                        <span className="fw-semibold text-truncate" style={{ fontSize: '0.9rem' }}>
-                                            {u.userName}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                            {activeMembers.length === 0 && (
-                                <small className="text-muted text-center py-2">No active members</small>
-                            )}
+                                    );
+                                })}
+                                {activeMembers.length === 0 && (
+                                    <small className="text-muted text-center py-2">No active members</small>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Total members */}
+                        <div>
+                            <h5 className="border-bottom pb-2 text-secondary" style={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                                All Members ({totalMembers.length})
+                            </h5>
+                            <div className="d-flex flex-column gap-2">
+                                {totalMembers.map((member) => {
+                                    const u = member.userId;
+                                    if (!u) return null;
+                                    const isOnline = activeMembers.some(active => active.userId?._id === u._id);
+                                    const isMemberAdmin = u._id === adminId;           // is this member the admin?
+                                    const isCurrentUser = u._id === user?._id;         // is this member the logged-in user?
+                                    return (
+                                        <div key={u._id} className="member-item" style={{ justifyContent: 'space-between' }}>
+                                            <div className="d-flex align-items-center gap-2" style={{ overflow: 'hidden' }}>
+                                                <div className="avatar-container">
+                                                    <img 
+                                                        src={u.profilepic || `https://api.dicebear.com/7.x/adventurer/svg?seed=${u.userName}`} 
+                                                        alt={u.userName} 
+                                                        className="avatar-img"
+                                                    />
+                                                    <span className={`status-badge ${isOnline ? 'status-online' : 'status-offline'}`}></span>
+                                                </div>
+                                                <div className="d-flex flex-column overflow-hidden">
+                                                    <span className="fw-semibold text-truncate d-flex align-items-center gap-1" style={{ fontSize: '0.9rem', lineHeight: '1.2' }}>
+                                                        {u.userName}
+                                                        {/* 👑 Crown badge for admin */}
+                                                        {isMemberAdmin && (
+                                                            <span 
+                                                                title="Room Admin"
+                                                                style={{ fontSize: '0.7rem', background: 'linear-gradient(135deg,#f6d365,#fda085)', color: '#fff', borderRadius: '4px', padding: '0px 5px', fontWeight: '700', letterSpacing: '0.3px', flexShrink: 0 }}
+                                                            >
+                                                                👑 Admin
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                    <small className="text-muted" style={{ fontSize: '0.7rem' }}>
+                                                        Joined {new Date(member.joinedAt).toLocaleDateString()}
+                                                    </small>
+                                                </div>
+                                            </div>
+
+                                            {/* 🔴 Remove button — only visible to admin, hidden on themselves and on the admin row */}
+                                            {isAdmin && !isCurrentUser && !isMemberAdmin && (
+                                                <button
+                                                    className="btn btn-danger btn-sm d-flex align-items-center justify-content-center"
+                                                    style={{ width: '26px', height: '26px', padding: 0, borderRadius: '6px', flexShrink: 0 }}
+                                                    title={`Remove ${u.userName}`}
+                                                    onClick={() => handleRemoveMember(u._id)}
+                                                >
+                                                    <span style={{ fontSize: '0.8rem', lineHeight: 1 }}>✕</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                {totalMembers.length === 0 && (
+                                    <small className="text-muted text-center py-2">No members</small>
+                                )}
+                            </div>
                         </div>
                     </div>
 
-                    {/* Total members */}
-                    <div>
-                        <h5 className="border-bottom pb-2 text-secondary" style={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                            All Members ({totalMembers.length})
-                        </h5>
-                        <div className="d-flex flex-column gap-2">
-                            {totalMembers.map((member) => {
-                                const u = member.userId;
-                                if (!u) return null;
-                                const isOnline = activeMembers.some(active => active.userId?._id === u._id);
-                                return (
-                                    <div key={u._id} className="member-item">
-                                        <div className="avatar-container">
-                                            <img 
-                                                src={u.profilepic || `https://api.dicebear.com/7.x/adventurer/svg?seed=${u.userName}`} 
-                                                alt={u.userName} 
-                                                className="avatar-img"
-                                            />
-                                            <span className={`status-badge ${isOnline ? 'status-online' : 'status-offline'}`}></span>
-                                        </div>
-                                        <div className="d-flex flex-column overflow-hidden">
-                                            <span className="fw-semibold text-truncate" style={{ fontSize: '0.9rem', lineHeight: '1.2' }}>
-                                                {u.userName}
-                                            </span>
-                                            <small className="text-muted" style={{ fontSize: '0.7rem' }}>
-                                                Joined {new Date(member.joinedAt).toLocaleDateString()}
-                                            </small>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {totalMembers.length === 0 && (
-                                <small className="text-muted text-center py-2">No members</small>
-                            )}
+                    {/* Copy Join Code Button (Expanded) */}
+                    <div className="mt-auto border-top pt-3">
+                        <small className="text-muted d-block mb-1" style={{ fontSize: '0.75rem' }}>Room Join Code</small>
+                        <div className="d-flex align-items-center justify-content-between p-2 rounded bg-light border">
+                            <code className="text-primary fw-bold" style={{ fontSize: '0.95rem', letterSpacing: '0.5px' }}>{roomid}</code>
+                            <button 
+                                onClick={handleCopyJoinCode} 
+                                className={`btn btn-sm ${copied ? 'btn-success text-white' : 'btn-outline-primary'} d-flex align-items-center justify-content-center p-0`}
+                                title="Copy Room Join Code"
+                                style={{ width: '28px', height: '28px', borderRadius: '4px', transition: 'all 0.2s' }}
+                            >
+                                <span style={{ fontSize: '0.85rem' }}>{copied ? '✓' : '📋'}</span>
+                            </button>
                         </div>
                     </div>
                 </div>
