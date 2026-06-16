@@ -1,11 +1,15 @@
-const express=require("express")
 const passport=require('passport')
-const LocalStratergy=require('passport-local').Strategy
 const bcrypt=require('bcrypt')
-const User=require("../models/user")
-const GoogleStratergy=require("passport-google-oauth20").Strategy
+
 require('dotenv').config()
+const User=require("../models/user")
+
+const GoogleStratergy=require("passport-google-oauth20").Strategy
+const LocalStratergy=require('passport-local').Strategy
+
 const jwt=require('jsonwebtoken')
+
+// Passport Stratergy for Local Users
 passport.use(new LocalStratergy ({
             usernameField: "usergmail",
             passwordField: "password"
@@ -22,11 +26,9 @@ passport.use(new LocalStratergy ({
             const ismatch=await bcrypt.compare(password,user.password)
 
             if (!ismatch){
-                
                 return done(null,false,{
                     message:"Wrong Password"
                 })
-
             }
             // Return profile of User
             return done(null,user)
@@ -36,18 +38,19 @@ passport.use(new LocalStratergy ({
         }
      }
 ))
-
+// PassPort Stratergy for google Users
 passport.use(new GoogleStratergy({
     clientID:process.env.CLIENT_ID,
     clientSecret:process.env.CLIENT_SECRET,
     callbackURL:process.env.CALLBACK_URL
 },async (accessToken,refreshToken,profile,done)=>{
-    console.log(`[BACKEND] 🔑 Google OAuth callback processing for user: ${profile.displayName} (${profile.emails[0]?.value})`);
+    console.log(`[BACKEND] Google OAuth callback processing for user: ${profile.displayName} (${profile.emails[0]?.value})`);
     try{
-        let user=await User.findOne({googleId:profile.id})
+        console.log("profile request from Google",profile)
+        let user=await User.findOne({googleId:profile.id})  //Check whether the user is already login using profile that  is returned from Google
 
         if (!user){
-            console.log(`[BACKEND] 👤 Google user not found in database. Creating new record for: ${profile.displayName}`);
+            console.log(`[BACKEND]  Google user not found in database. Creating new record for: ${profile.displayName}`);
             user=new User({
                 usergmail:profile.emails[0].value,
                 userName:profile.displayName,
@@ -56,40 +59,40 @@ passport.use(new GoogleStratergy({
                 googleId:profile.id
             })
             await user.save()
-            console.log(`[BACKEND] 👤 New Google user record saved successfully: ${user.usergmail}`);
+            console.log(`[BACKEND]  New Google user record saved successfully: ${user.usergmail}`);
         } else {
-            console.log(`[BACKEND] 👤 Google user matched database record: ${user.usergmail}`);
+            console.log(`[BACKEND] Google user matched database record: ${user.usergmail}`);
         }
 
         return done(null,user)
     }
     catch(err){
-        console.error("[BACKEND] ❌ Error in Google Strategy callback:", err);
+        console.error("[BACKEND] Error in Google Strategy callback:", err);
         return done(err)
     }
 }
 ))
-
+// Sign up function with local gmail and pass
 const signup=async (req,res)=>{
     const gmail=req.body.username
     const pass=req.body.password
    
     const usernameFromEmail = gmail.split('@')[0];
-    console.log(`[BACKEND] 📝 Action: Attempting signup for email: ${gmail}`);
+    console.log(`[BACKEND] Action: Attempting signup for email: ${gmail}`);
     
     try{
+         //Hasing Password salt 10 Rounds
          const hashedpass=await bcrypt.hash(pass,10)  
-            //Hasing Password salt 10 Rounds
         const existinguser=await User.findOne({usergmail:gmail})  
         //If existing User return 400 bad request Error
         if (existinguser){
-            console.warn(`[BACKEND] ⚠️ Signup failed: Email ${gmail} is already registered.`);
-            return res.status(400).json({
+            console.warn(`[BACKEND] Signup failed: Email ${gmail} is already registered.`);
+            return res.status(409).json({
                 message:"Email is already Registered in Database"
             })
 
         }
-        // New user creating Temportyl saving username afterthat giving ability to Modify IT
+        // New user creating Temporarly saving username after that giving ability to Modify IT
         const newuser=new User({
             usergmail:gmail,
             password:hashedpass,
@@ -99,7 +102,7 @@ const signup=async (req,res)=>{
         })
             // Saving User
             await newuser.save()
-            console.log(`[BACKEND] 👤 Signup success: Created user ${usernameFromEmail} (${gmail})`);
+            console.log(`[BACKEND] Signup success: Created user ${usernameFromEmail} (${gmail})`);
             return res.status(201).json({
                 message:"User Created Successfully",
                 name:usernameFromEmail
@@ -141,7 +144,7 @@ const generateTokensAndSetCookie = async (user, res) => {
     // Save refresh token to user model
     user.refreshToken = refreshToken;
     await user.save();
-    console.log(`[BACKEND] 💾 Saved refresh token to database for user: ${user.userName}`);
+    console.log(`[BACKEND] Saved refresh token to database for user: ${user.userName}`);
 
     // Set HTTP-only secure cookie
     res.cookie('refreshToken', refreshToken, {
@@ -150,11 +153,12 @@ const generateTokensAndSetCookie = async (user, res) => {
         sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
-    console.log(`[BACKEND] 🍪 Set secure httpOnly cookie 'refreshToken' for user: ${user.userName}`);
+    console.log(`[BACKEND] Set secure httpOnly cookie 'refreshToken' for user: ${user.userName}`);
 
     return accessToken;
 };
 
+// Login using Local Gmail and Password
 const login = (req, res, next) => {
     console.log(`[BACKEND] 🔑 Action: Attempting local authentication for email: ${req.body.usergmail}`);
     passport.authenticate(
@@ -188,25 +192,28 @@ const login = (req, res, next) => {
     )(req, res, next);
 };
 
+
+
+
 const refresh = async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
     if (!refreshToken) {
-        console.warn("[BACKEND] ❌ Token refresh failed: Refresh token cookie is missing!");
+        console.warn("[BACKEND] Token refresh failed: Refresh token cookie is missing!");
         return res.status(401).json({ message: "Refresh Token Missing" });
     }
 
     try {
         console.log("[BACKEND] 🔄 Action: Verifying refresh token...");
-        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH || 'mySuperRefreshSecretKey');
-        console.log(`[BACKEND] 🔄 Refresh token verified for User ID: ${decoded.id}, Name: ${decoded.name}`);
+        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH);
+        console.log(`[BACKEND] Refresh token verified for User ID: ${decoded.id}, Name: ${decoded.name}`);
 
         const user = await User.findOne({ _id: decoded.id, refreshToken: refreshToken });
         if (!user) {
-            console.warn("[BACKEND] ⚠️ Token refresh failed: Refresh token does not match database record!");
+            console.warn("[BACKEND] Token refresh failed: Refresh token does not match database record!");
             return res.status(403).json({ message: "Invalid Refresh Token" });
         }
 
-        console.log("[BACKEND] 🔄 Refresh token matched database. Generating new access token...");
+        console.log("[BACKEND] Refresh token matched database. Generating new access token...");
         const newAccessToken = jwt.sign(
             {
                 id: user._id,
@@ -219,38 +226,42 @@ const refresh = async (req, res) => {
             }
         );
 
-        console.log(`[BACKEND] ✅ Token refresh success: Generated new access token for user: ${user.userName}`);
+        console.log(`[BACKEND] Token refresh success: Generated new access token for user: ${user.userName}`);
         return res.status(200).json({
             token: newAccessToken,
             user
         });
     } catch (e) {
-        console.error("[BACKEND] ❌ Token refresh verification failed:", e.message);
+        console.error("[BACKEND] Token refresh verification failed:", e.message);
         return res.status(403).json({ message: "Invalid or Expired Refresh Token" });
     }
 };
 
 const logout = async (req, res) => {
+    // Getting Accesstoken from cookies
     const refreshToken = req.cookies.refreshToken;
-    console.log("[BACKEND] 🚪 Action: Logging out user session...");
+    console.log("[BACKEND] Action: Logging out user session...");
     if (refreshToken) {
         try {
+
             const decoded = jwt.decode(refreshToken);
             if (decoded && decoded.id) {
-                console.log(`[BACKEND] 🚪 Clearing refresh token from DB for User ID: ${decoded.id}`);
+                console.log(`[BACKEND] Clearing refresh token from DB for User ID: ${decoded.id}`);
+                // Revoking the decoded id refresh token from database
                 await User.findOneAndUpdate({ _id: decoded.id }, { refreshToken: null });
             }
         } catch (e) {
-            console.error("[BACKEND] ❌ Error clearing refresh token from DB during logout:", e);
+            console.error("[BACKEND] Error clearing refresh token from DB during logout:", e);
         }
     }
-    console.log("[BACKEND] 🍪 Action: Clearing 'refreshToken' HTTP-only cookie");
+    console.log("[BACKEND] Action: Clearing 'refreshToken' HTTP-only cookie");
+    // Clearing the Cookie 
     res.clearCookie('refreshToken', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax'
     });
-    console.log("[BACKEND] ✅ Logout complete");
+    console.log("[BACKEND] Logout complete");
     return res.status(200).json({ message: "Logged out successfully" });
 };
 

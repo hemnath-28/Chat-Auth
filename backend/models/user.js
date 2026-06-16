@@ -27,7 +27,11 @@ const userSchema = new mongoose.Schema(
         },
         googleId:{
             type:String
-        }
+        },
+        refreshToken: 
+        { type: String,
+             default: null
+         }
 },
 { timestamps: true }
 )

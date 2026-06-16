@@ -1,24 +1,23 @@
 const cloudinary = require('cloudinary').v2
 const fs = require('fs')
-
+require('dotenv').config()
 const path = require('path')
 
 // Return "https" URLs by setting secure: true
 cloudinary.config({
-  
-  cloud_name: "intervue", 
-  api_key: "642531739433753", 
-  api_secret: "_6jVkr5rm3aslPCbFSp945fgK3c",
+  cloud_name:process.env.CLOUD_NAME , 
+  api_key: process.env.API_KEY, 
+  api_secret: process.env.API_SECRET,
+  secure:true
 });
 
-// Log the configuration
-console.log("config:",cloudinary.config());
+
 
 async function uploadimage(req,res){
-    console.log("in the image Upload")
-    console.log("req body",req.file)
-    
+    console.log("[BACKEND]  Action: Image upload requested");
+    // If no file inform the Frontend 
     if (!req.file) {
+        console.warn("[BACKEND] ⚠️ Image upload failed: No file was attached to the request");
         return res.status(400).json({ message: "No file uploaded" });
     }
 
@@ -37,19 +36,18 @@ async function uploadimage(req,res){
     };
     const imagePath = req.file.path;
     try{
-       
-        const result=await cloudinary.uploader.upload(imagePath,options)
-        console.log("image upload",result)
-        fs.unlinkSync(imagePath)
+        console.log(`[BACKEND] ☁️ Uploading file "${req.file.originalname}" (${req.file.mimetype}) to Cloudinary...`);
+        const result=await cloudinary.uploader.upload(imagePath,options)  //Upload image to the uRL
+        console.log(`[BACKEND] ✅ Cloudinary upload successful. URL: ${result.secure_url}`);
+        fs.unlinkSync(imagePath)  //To remove from the tmp multer directory
         return res.status(200).json(result)
     }catch(err){
-        console.log(err)
+        console.error("[BACKEND] ❌ Cloudinary upload error:", err);
         if (fs.existsSync(imagePath)) {
             fs.unlinkSync(imagePath)
         }
         return res.status(404).json("error in cloudinary")
     }
-
 }
 
 module.exports=uploadimage

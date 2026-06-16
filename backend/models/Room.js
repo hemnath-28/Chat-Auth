@@ -3,19 +3,19 @@ const mongoose=require('mongoose')
 
 const RoomSchema=new mongoose.Schema(
     {
-    roomName: {
+    roomName: {    
     type: String,
     required: true,
     unique: true
   },
    joinId: {
-    type: String,
+    type: String,   //Share id to let Other Join
     required: true,
     unique: true
   },
 
   admin:{
-        type:mongoose.Schema.Types.ObjectId,
+        type:mongoose.Schema.Types.ObjectId,   //Admin Id
         ref:"User",
         required:true
     },
@@ -26,7 +26,7 @@ const RoomSchema=new mongoose.Schema(
             ref: 'User',
             required: true
         },
-        joinedAt:{
+        joinedAt:{     //Used to filter Messsage after they have Joined Instead of Offset Approach
             type:Date,
             default:Date.now
         }
