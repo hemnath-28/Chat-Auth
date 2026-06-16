@@ -16,10 +16,10 @@ const socket=io("http://localhost:3000", { autoConnect: false })
     const [typedText, setTypedText] = useState("");
     const [activeMembers, setActiveMembers] = useState([]);
     const [totalMembers, setTotalMembers] = useState([]);
-    const [isAdmin, setIsAdmin] = useState(false);      // true if current user is room admin
-    const [adminId, setAdminId] = useState(null);        // stores the admin's user ID
-    const [copied, setCopied] = useState(false);        // true when join code is copied to clipboard
+    const [Adminid,setAdminid]=useState("null")
     const typingTimer = useRef(null)
+    const [copied, setCopied] = useState(false)
+    const isAdmin = user && user._id === Adminid
     console.log(user)
     useEffect(() => {
         if (!loading && !user) {
@@ -41,19 +41,16 @@ const socket=io("http://localhost:3000", { autoConnect: false })
 
       const fetchhistory=async ()=>{
         try{
-          console.log(`http://localhost:3000/room/${roomid}/message`)
+          console.log(`Fetching history for room: ${roomid}`)
           const response=await api.get(`/room/${roomid}/message`)
           setMessages(response.data)
 
           // Fetch all room members
           const membersResponse=await api.get(`/room/${roomid}/members`)
           console.log("total Members:", membersResponse)
+          setAdminid(membersResponse.data.people.admin._id)
+          console.log("admin id",Adminid)
           setTotalMembers(membersResponse.data.people.members || [])
-
-          // Admin is already returned in the members response — no extra API call needed
-          const roomAdminId = membersResponse.data.people.admin?._id
-          setAdminId(roomAdminId)
-          setIsAdmin(roomAdminId === user?._id)
 
           // Fetch online active members
           const activeusers=await api.get(`/room/${roomid}/activemember`)
@@ -82,7 +79,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
         console.log("User left:", msg)
         fetchhistory()
       })
-        socket.on("UserTyping", (username) => {
+       socket.on("UserTyping", (username) => {
             console.log("in user typing", username)
             setTypingUsers((prev) => {
                 if (prev.includes(username)) return prev;
@@ -95,7 +92,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
             setTypingUsers((prev) => prev.filter((name) => name !== username));
         });
 
-        // If this user was removed by admin, navigate them to Home
+        // Listen for admin member removal
         socket.on("you_were_removed", ({ removedUserId }) => {
             if (user && removedUserId === user._id) {
                 alert("You have been removed from this room by the admin.")
@@ -105,9 +102,9 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                 setTotalMembers(prev => prev.filter(m => m.userId?._id !== removedUserId))
                 setActiveMembers(prev => prev.filter(m => m.userId?._id !== removedUserId))
             }
-        })
+        });
 
-      return () => {
+      return ()=>{
         console.log("Cleaning up socket listeners...");
         socket.disconnect();
         socket.off("alert");
@@ -120,96 +117,52 @@ const socket=io("http://localhost:3000", { autoConnect: false })
       }
     },[roomid,user,token])
 
-    // Backend proxy download — avoids CORS issues with Cloudinary raw files
-    const handleDownload = (url, filename) => {
-        const proxyUrl = `http://localhost:3000/room/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename || 'download')}`;
-        const link = document.createElement('a');
-        link.href = proxyUrl;
-        link.download = filename || 'download';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    // Admin: remove a member from the room
-    const handleRemoveMember = async (memberId) => {
-        try {
-            await api.delete(`/room/${roomid}/remove/${memberId}`)
-            // Notify the removed user via socket to navigate home
-            socket.emit("remove_member", { roomid, removedUserId: memberId })
-            // Remove from local state immediately
-            setTotalMembers(prev => prev.filter(m => m.userId?._id !== memberId))
-            setActiveMembers(prev => prev.filter(m => m.userId?._id !== memberId))
-        } catch (err) {
-            console.error("Failed to remove member:", err)
-            alert("Failed to remove member. Make sure you are the admin.")
-        }
-    };
-
-    const handleCopyJoinCode = () => {
-        navigator.clipboard.writeText(roomid);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
     const handleSendMessage = async (e) => {
         e.preventDefault();
         if (!typedText.trim() && !selectedFile) return;
-
-        let uploadfileurl = null;
-        let uploadfiletype = null;
-
+        console.log("file :",selectedFile)
         // Clear typing indicator instantly when sending a message
         clearTimeout(typingTimer.current);
         socket.emit("stoptyping", {
             roomid: roomid,
             username: user.userName
         });
-
+        let uploadfileurl=null
+        let uploadedfiletype = null
         if (selectedFile){
             const formData=new FormData()
             formData.append('image',selectedFile)
+            
             try{
+                console.log("in the upload section")
                 const Response=await api.post("/room/upload",formData,{
-                    headers: {
-                        "Content-Type": "multipart/form-data"
-                    }
-                })
-                const uploadResult = Response.data.message || Response.data;
-                uploadfileurl = uploadResult.url;
-                uploadfiletype = selectedFile.type.startsWith('image/') ? 'image' : 'file';
+                headers: {
+                    "Content-Type": "multipart/form-data"
+                }
+            });
+                console.log("got the Url")
+                uploadfileurl=Response.data.url
+                uploadedfiletype = Response.data.resource_type === 'image' ? 'image' : 'file';
             }
             catch(err){
                 console.log(err)
+                alert("Failed to upload file. Message not sent.");
+                return; // Stop sending the message if upload fails
             }
         }
-
-        let messagePayload;
-
-        if (!selectedFile){
-            messagePayload = {
+        console.log("in the message payload")        
+        const messagePayload = {
                 joinid: roomid,
                 sender: user?._id,
                 content: typedText,
-                fileUrl: null,
-                fileType: null  
+                fileUrl: uploadfileurl ,    // 🟢 Save the file URL
+                fileType: uploadedfiletype 
             };
-            socket.emit("send_message", messagePayload);
-            setTypedText("");
-            return;
-        } else {
-            messagePayload = {
-                joinid: roomid,
-                sender: user?._id,
-                content: typedText || selectedFile.name,
-                fileUrl: uploadfileurl,
-                fileType: uploadfiletype  
-            };
-        }
-
+        console.log("Not selected file",messagePayload)
         socket.emit("send_message", messagePayload);
         setTypedText("");
-        setSelectedFile(null); // Clear selected file after sending
+        setSelectedFile(null)
+        return;
     };
 
     if (loading || !user) {
@@ -231,6 +184,27 @@ const socket=io("http://localhost:3000", { autoConnect: false })
             
         }
     }
+
+    // Admin: remove a member from the room
+    const handleRemoveMember = async (memberId) => {
+        try {
+            await api.delete(`/room/${roomid}/remove/${memberId}`)
+            // Notify the removed user via socket to navigate home
+            socket.emit("remove_member", { roomid, removedUserId: memberId })
+            // Remove from local state immediately
+            setTotalMembers(prev => prev.filter(m => m.userId?._id !== memberId))
+            setActiveMembers(prev => prev.filter(m => m.userId?._id !== memberId))
+        } catch (err) {
+            console.error("Failed to remove member:", err)
+            alert("Failed to remove member. Make sure you are the admin.")
+        }
+    };
+
+    const handleCopyJoinCode = () => {
+        navigator.clipboard.writeText(roomid);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     const sidebarStyles = `
     body {
@@ -449,7 +423,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                                     const u = member.userId;
                                     if (!u) return null;
                                     const isOnline = activeMembers.some(active => active.userId?._id === u._id);
-                                    const isMemberAdmin = u._id === adminId;           // is this member the admin?
+                                    const isMemberAdmin = u._id === Adminid;           // is this member the admin?
                                     const isCurrentUser = u._id === user?._id;         // is this member the logged-in user?
                                     return (
                                         <div key={u._id} className="member-item" style={{ justifyContent: 'space-between' }}>
@@ -546,12 +520,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                                     {msg.sender.userName}
                                 </small>
                                 {msg.fileUrl ? (
-                                    // Ensure documents (PDF, Doc, Txt) are not treated as images even if they have an image fileType
-                                    !/\.(pdf|doc|docx|txt)$/i.test(msg.fileUrl) &&
-                                    !/\.(pdf|doc|docx|txt)$/i.test(msg.content) &&
-                                    (msg.fileType === 'image' || 
-                                     (/\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i.test(msg.fileUrl)) ||
-                                     (msg.content && /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(msg.content))) ? (
+                                    msg.fileType === 'image' ? (
                                         <div className="mt-1">
                                             <img 
                                                 src={msg.fileUrl} 
@@ -564,12 +533,14 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                                         </div>
                                     ) : (
                                         <div className="mt-1">
-                                            <button 
-                                                onClick={() => handleDownload(msg.fileUrl, msg.content)}
+                                            <a 
+                                                href={msg.fileUrl} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
                                                 className={`btn btn-sm ${user && msg.sender._id === user._id ? 'btn-light text-dark' : 'btn-outline-primary'} d-inline-flex align-items-center gap-1`}
                                             >
                                                 📄 Download {msg.content}
-                                            </button>
+                                            </a>
                                         </div>
                                     )
                                 ) : (
@@ -594,21 +565,6 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                     </div>
                 )}
 
-                {/* Staged File Preview */}
-                {selectedFile && (
-                    <div className="d-flex align-items-center gap-2 mb-2 p-2 bg-light border rounded" style={{ maxWidth: 'fit-content' }}>
-                        <span>📄 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
-                        <button 
-                            type="button" 
-                            className="btn btn-sm btn-outline-danger py-0 px-2"
-                            onClick={() => setSelectedFile(null)}
-                            style={{ lineHeight: '1', fontSize: '0.8rem', padding: '1px 5px' }}
-                        >
-                            ✕
-                        </button>
-                    </div>
-                )}
-
                 {/* Message Input Bar */}
                 <form onSubmit={handleSendMessage} className="d-flex gap-2 align-items-center">
                     <input 
@@ -617,8 +573,8 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                         style={{ display: 'none' }} 
                         onChange={(e) => {setSelectedFile(e.target.files[0])
                             console.log(selectedFile)
-                        }}
-                        accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.txt,.pdf,.doc,.docx,.py,.java,.c,.cpp,.js,.ts,.json,.xml,.csv,.html,.css"
+                        }} // 👈 Store the file object in state
+                        accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     />
                     <input 
                         type="text" 
@@ -638,7 +594,7 @@ const socket=io("http://localhost:3000", { autoConnect: false })
                                     roomid:roomid,
                                     username:user.userName
                                 });
-                            }, 3000);
+                            }, 5000);
                         }}
                     />
                     <button 

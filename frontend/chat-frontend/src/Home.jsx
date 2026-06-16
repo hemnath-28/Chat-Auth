@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react'
-import axios from 'axios'
+import api from './api'
 import {UserContext} from "./User"
 import { useNavigate } from 'react-router-dom'
 import './index.css'
@@ -11,9 +11,8 @@ function Home() {
     const navigate=useNavigate();
     const [joinid,setjoinid]=useState("5A64WZ")
     const [roomsjoined,setroomsjoined]=useState({ userRooms: [] })
-
     const { user, loading } = useContext(UserContext)
-
+    
     useEffect(() => {
         if (!loading && !user) {
             navigate("/");
@@ -23,11 +22,7 @@ function Home() {
     const getroomsjoined=async ()=>{
         if (!token || !user?._id) return;
         try{
-            const joinedroom=await axios.get(`http://localhost:3000/room/getrooms/${user._id}`,{
-                headers:{
-                    Authorization: `Bearer ${token}`
-                }
-            })
+            const joinedroom=await api.get(`/room/getrooms/${user._id}`)
             setroomsjoined(joinedroom.data)
             console.log("rooms joined:",joinedroom.data)
         } catch(err) {
@@ -50,16 +45,11 @@ function Home() {
     async function roomcreate(e){
         e.preventDefault()
         try{
-            const response=await axios.post("http://localhost:3000/room/create",
+            const response=await api.post("/room/create",
                 {
                     roomName:roomname,
                     admin:user._id,
                     member:user._id 
-                },
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
                 }
             )
             console.log(response)
@@ -78,14 +68,7 @@ function Home() {
         if (!joinid.trim()) return;
         try{
             console.log("Joining room:", joinid)
-            const response=await axios.post("http://localhost:3000/room/join/"+joinid,
-                {},
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                }
-            )
+            const response=await api.post("/room/join/"+joinid, {})
             console.log("response room:", response)
             // Navigate to the chat page on success
             navigate(`/${joinid}/Chat`)

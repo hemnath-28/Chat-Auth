@@ -4,7 +4,7 @@ import { UserContext } from './User';
 
 function OAuthSuccess() {
     const navigate = useNavigate();
-    const { restoreSession } = useContext(UserContext);
+    
 
     useEffect(() => {
         const params =

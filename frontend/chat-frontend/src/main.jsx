@@ -6,7 +6,7 @@ import Login from "./Login"
 import Profile from './Profile'
 import OAuthSuccess from "./OAuthSuccess"
 import Home from "./Home"
-
+import Chat from "./Chat"
 
 import {UserProvider} from "./User"
 
@@ -30,6 +30,10 @@ const router=createBrowserRouter([{
 {
   path:"/Home",
   element:<Home/>
+},
+{
+  path:"/:roomid/Chat",
+  element:<Chat/>
 }
   
 ])

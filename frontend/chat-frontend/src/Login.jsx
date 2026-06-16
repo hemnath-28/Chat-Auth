@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import axios from 'axios'
 import {useNavigate} from 'react-router-dom'
+import {UserContext} from "./User"
 
 function Login() {
   const [isLogin, setIsLogin] = useState(true);
   const [gmail,setgmail]=useState(null)
   const [pass,setpass]=useState(null)
   const navigate=useNavigate()
+  const { setUser } = useContext(UserContext)
 
 
   async function checkSignUp (e){ 
@@ -43,13 +45,16 @@ function Login() {
           }
         )
         if (data.status===200){
-          alert("Logging you in")
-          navigate("/Profile")
-        }
-        localStorage.setItem(
+          localStorage.setItem(
             "token",
             data.data.token
         );
+          setUser(data.data.user);
+          alert("Logging you in")
+          navigate("/Profile")
+         
+        }
+        
         console.log(data)
           
         }

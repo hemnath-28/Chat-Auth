@@ -1,7 +1,7 @@
 import React, { useEffect, useContext, useState } from "react";
 import {useNavigate} from "react-router-dom"
 import {UserContext} from "./User"
-import axios from 'axios'
+import api from './api'
 function Profile() {
   const navigate = useNavigate();
   
@@ -34,9 +34,15 @@ function Profile() {
 
   const prof = user;
 
-  function handlelogout(){
+  async function handlelogout(){
+    try {
+      await api.post("/auth/logout");
+      console.log("[FRONTEND] Backend session and cookie cleared.");
+    } catch (err) {
+      console.error("[FRONTEND] Failed to clear backend session on logout:", err);
+    }
     localStorage.removeItem("token")
-    console.log("log-out Succeess")
+    console.log("log-out Success")
     setUser(null)
     navigate("/")
   }
@@ -46,13 +52,8 @@ function Profile() {
     console.log("Update clicked with new username:", newUsername);
     const id=user._id
     console.log(user)
-    const newuser=await axios.post(`http://localhost:3000/user/Profile/${id}`,{
+    const newuser=await api.post(`/user/Profile/${id}`,{
       updatename:newUsername,
-    },
-      {
-        headers: {
-              Authorization: `Bearer ${token}`
-          }
     })
     console.log("user:",newuser)
     console.log(newuser)
@@ -70,12 +71,8 @@ function Profile() {
     console.log("Update picture URL clicked:", picUrl);
     const id = user._id;
     try {
-      const response = await axios.post(`http://localhost:3000/user/Profile/${id}`, {
+      const response = await api.post(`/user/Profile/${id}`, {
         profilepic: picUrl,
-      }, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
       });
       setUser(response.data);
       setIsEditingPic(false);
